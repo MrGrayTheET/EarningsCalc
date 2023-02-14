@@ -1,15 +1,14 @@
 import numpy as np
 import pandas as pd
-import yfinance as yf
 import datetime as dt
 import pandas_datareader as pdr
 from keras.layers import Dense, Dropout,LSTM, GRU
 from keras.models import Sequential
-import pandas_ta as ta
+
 import matplotlib.pyplot as plt
 from statsmodels.tsa.stattools import  adfuller
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
+
 
 start = dt.datetime(1991,1,1)
 end = dt.datetime(2023,2,1)
@@ -31,36 +30,14 @@ df = df.dropna().reset_index()
 
 df = df.drop('DATE', 1)
 
-def adfuller_test(series, signif=0.05, name='', verbose=False):
-    """Perform ADFuller to test for Stationarity of given series and print report"""
-    r = adfuller(series, autolag='AIC')
-    output = {'test_statistic':round(r[0], 4), 'pvalue':round(r[1], 4), 'n_lags':round(r[2], 4), 'n_obs':r[3]}
-    p_value = output['pvalue']
-    def adjust(val, length= 6): return str(val).ljust(length)
-
-    # Print Summary
-    print(f'    Augmented Dickey-Fuller Test on "{name}"', "\n   ", '-'*47)
-    print(f' Null Hypothesis: Data has unit root. Non-Stationary.')
-    print(f' Significance Level    = {signif}')
-    print(f' Test Statistic        = {output["test_statistic"]}')
-    print(f' No. Lags Chosen       = {output["n_lags"]}')
-
-    for key,val in r[4].items():
-        print(f' Critical value {adjust(key)} = {round(val, 3)}')
-
-    if p_value <= signif:
-        print(f" => P-Value = {p_value}. Rejecting Null Hypothesis.")
-        print(f" => Series is Stationary.")
-    else:
-        print(f" => P-Value = {p_value}. Weak evidence to reject the Null Hypothesis.")
-        print(f" => Series is Non-Stationary.")
-
-def format_data(scaled_data, past_periods, future_periods):
+#Build our functions
+def format_data(scaled_data, past_periods, future_periods): #Past Periods = Lookback
+                                                            #Future periods = values to be predicted
     trainX = []
     trainY = []
     for i in range(past_periods, len(scaled_data) - future_periods + 1):
         trainX.append(scaled_data[i - past_periods:i, 0:scaled_data.shape[1]])
-        trainY.append(scaled_data[i + future_periods - 1:i + future_periods, 0])
+        trainY.append(scaled_data[i + future_periods - 1:i + future_periods, 0]) #Shaping data for multivariate analysis
 
     #
     trainX, trainY = np.array(trainX), np.array(trainY)
@@ -91,19 +68,35 @@ def CreateGRUBase(trainX, trainY):
 scaler =StandardScaler()
 scaler = scaler.fit(df)
 dfScaled = scaler.transform(df) # Scale our data for standardization
+
 trainLen = int(0.7 * len(dfScaled))
-training_data = dfScaled[:trainLen]
+training_data = dfScaled[:trainLen] #Split our data for train/test
 testing_data = dfScaled[trainLen:]
-trainX,trainY = format_data(training_data, 20, 8)
+
+trainX,trainY = format_data(training_data, 20, 8) # Define our data, lookback, future
 testX, testY = format_data(testing_data, 20, 8)
 
 
 
-modelG = CreateGRUBase(trainX, trainY)
-modelL = CreateLSTMBase(trainX, trainY)
+modelG = CreateGRUBase(trainX, trainY) #Building the GRU
+modelL = CreateLSTMBase(trainX, trainY) #Building LSTM
 history = modelL.fit(trainX, trainY, epochs=50, batch_size=20,validation_split=0.1, verbose=1)
-history2 = modelG.fit(trainX,trainY,batch_size=20, epochs=50, validation_split=0.1, verbose=1)
+history2 = modelG.fit(trainX,trainY,batch_size=20, epochs=50, validation_split=0.1, verbose=1) #Fitting
 fig, ax = plt.subplots()
-ax.plot(history.history['loss'])
-pred = modelG.predict(testX)
-p
+ax2 = ax.twinx()
+ax.plot(history.history['loss']) #LSTM LOSS
+ax2.plot(history2.history['loss'], color='orange') #GRU LOSS
+
+pred = modelL.predict(testX)
+pred2 = modelG.predict(testX)
+
+pred_copy = np.repeat(pred, dfScaled.shape[1], -1)
+pred2_copy = np.repeat(pred2, dfScaled.shape[1], -1) #Build our forecast-copies
+trans_pred = scaler.inverse_transform(pred_copy)[:, 0]
+trans_pred2 = scaler.inverse_transform(pred2_copy)[:, 0]
+
+fig, pplot = plt.subplots()
+pplot2 = pplot.twinx()
+pplot.plot(trans_pred)
+pplot2.plot(trans_pred2, color='orange')
+plt.show()
